@@ -6,6 +6,7 @@ from ultralytics import YOLO
 from dataclasses import dataclass
 import math
 import logging
+from pathlib import Path
 
 
 def distance(bbox1, bbox2):
@@ -22,7 +23,7 @@ def check_line(line, cx, cy):
 def write_counts(img, up_count, down_count):
     up_text = (f"Persons: {up_count[0]} \n"
                f"Cars: {up_count[2]}\n"
-               f"Motorcycles: {up_counts[3]}\n"
+               f"Motorcycles: {up_count[3]}\n"
                f"Buses: {up_count[5]}\n"
                f"Truck: {up_count[7]}")
     y0 = 16
@@ -44,13 +45,26 @@ def write_counts(img, up_count, down_count):
     return img
 
 
-# Load the YOLOv8 model
-model = YOLO("yolov8m.pt")
+# All paths are resolved relative to THIS file, not the current working
+# directory. This means the script works no matter where you run it from.
+PROJECT_ROOT = Path(__file__).resolve().parent
+
+# Load the YOLOv8 model.
+# If the weights file is missing, ultralytics downloads it automatically.
+WEIGHTS_PATH = PROJECT_ROOT / "weights" / "yolov8n.pt"
+WEIGHTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+model = YOLO(str(WEIGHTS_PATH))
 
 # Open the video file
-video_path = r"C:\Users\Chaitanya\Downloads\mohua\MoHUA\video\14_h265_20231216184310.mp4_xxx\sample_video.mp4"
-vid_name = video_path.split("/")[-1].split(".")[0]
-cap = cv2.VideoCapture(video_path)
+video_path = PROJECT_ROOT / "video" / "14_h265_20231216184310.mp4_xxx" / "sample_video.mp4"
+vid_name = video_path.stem
+cap = cv2.VideoCapture(str(video_path))
+
+# Fail loudly. Without this, a bad path makes the loop below skip entirely
+# and the script exits with no error and no output.
+if not cap.isOpened():
+    raise SystemExit(f"ERROR: could not open video file:\n  {video_path}\n"
+                     "Check that the file exists at that exact path.")
 person_vehicle_dict = {}
 RADIUS = 50
 WINDOW_SIZE = 25
@@ -83,6 +97,16 @@ while cap.isOpened():
     if success:
         # Run YOLOv8 tracking on the frame, persisting tracks between frames
         results = model.track(frame, persist=True, classes=[0, 1, 2, 3, 5, 7])
+
+        # When the tracker finds nothing in a frame, .id is None (not an empty
+        # tensor). Calling .int() on None raises AttributeError and kills the run.
+        # Empty frames are normal in traffic footage, so skip them instead.
+        if results[0].boxes.id is None:
+            cv2.imshow("YOLOv8 Tracking", results[0].plot())
+            if cv2.waitKey(1) & 0xFF == ord("q"):
+                break
+            continue
+
         boxes = results[0].boxes.xywh.cpu()
         track_ids = results[0].boxes.id.int().cpu().tolist()
         classes = results[0].boxes.cls.tolist()
@@ -156,11 +180,6 @@ while cap.isOpened():
 
         # Break the loop if 'q' is pressed
         if cv2.waitKey(1) & 0xFF == ord("q"):
-            print(person_vehicle_dict)
-            print(len(person_vehicle_dict))
-            print(f"Drivers {drivers}")
-            print(down_counts)
-            print(up_counts)
             break
     else:
         # Break the loop if the end of the video is reached
@@ -170,4 +189,18 @@ while cap.isOpened():
 cap.release()
 cv2.destroyAllWindows()
 
-
+# Print the summary AFTER the loop, so it appears whether you quit with 'q'
+# or the video simply ran to the end. Previously these lines lived inside the
+# 'q' block, so a video that finished normally printed nothing at all.
+CLASS_NAMES = {0: "Person", 1: "Bicycle", 2: "Car", 3: "Motorcycle", 5: "Bus", 7: "Truck"}
+print("\n" + "=" * 40)
+print("FINAL COUNTS")
+print("=" * 40)
+print("UP line:")
+for cls_id, name in CLASS_NAMES.items():
+    print(f"  {name:<12} {up_counts[cls_id]}")
+print("DOWN line:")
+for cls_id, name in CLASS_NAMES.items():
+    print(f"  {name:<12} {down_counts[cls_id]}")
+print(f"\nPerson-vehicle pairs tracked: {len(person_vehicle_dict)}")
+print(f"Riders identified: {drivers}")

@@ -1,0 +1,14 @@
+# Core detection + tracking
+ultralytics>=8.3.0        # YOLOv8 model, .track() API. Pulls in torch/torchvision.
+lap>=0.5.12               # Required by the tracker for track association.
+                          # Without it, model.track() fails on first call.
+opencv-python>=4.8.0      # Video reading, drawing, GUI windows (cv2.imshow)
+numpy>=1.24.0
+
+# Used by the dataset / plotting scripts only (not by track.py)
+matplotlib>=3.7.0         # helper.py colour maps, plot.py
+pandas>=2.0.0             # plot.py
+
+# Optional: only needed by template_matching.py, which also requires the
+# Tesseract OCR binary to be installed separately on your system.
+# pytesseract>=0.3.10
